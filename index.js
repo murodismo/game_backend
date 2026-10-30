@@ -13,9 +13,17 @@ const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-ozgartiring';
 const ACCESS_TTL = process.env.ACCESS_TTL || '15m'; // access token qisqa muddatli
 const REFRESH_TTL_DAYS = Number(process.env.REFRESH_TTL_DAYS) || 7; // refresh token uzoq muddatli
 const REFRESH_COOKIE = 'refresh_token';
+// Render'da (RENDER=true) frontend boshqa saytda: cookie cross-site bo'lishi uchun SameSite=None + Secure kerak
+const CROSS_SITE = Boolean(process.env.RENDER) || process.env.NODE_ENV === 'production';
+const COOKIE_OPTS = { httpOnly: true, sameSite: CROSS_SITE ? 'none' : 'strict', secure: CROSS_SITE, path: '/api' };
 
 const app = express();
-app.use(cors());
+// Frontend boshqa domenda (Vercel / localhost) bo'lgani uchun cookie bilan so'rovga ruxsat beriladi.
+// credentials: true bilan '*' ishlamaydi, shuning uchun aniq manzillar ro'yxati kerak.
+// Render'da CLIENT_ORIGINS ga vergul bilan yoziladi: https://oyin.vercel.app,http://localhost:5173
+const CLIENT_ORIGINS = (process.env.CLIENT_ORIGINS || 'http://localhost:5173')
+  .split(',').map((o) => o.trim().replace(/\/+$/, '')).filter(Boolean);
+app.use(cors({ origin: CLIENT_ORIGINS, credentials: true }));
 app.use(express.json());
 
 function validate(username, password) {
@@ -50,17 +58,11 @@ function createRefreshToken(userId) {
 
 // Refresh token httpOnly cookie'da turadi, JavaScript uni o'qiy olmaydi
 function setRefreshCookie(res, { token, expiresAt }) {
-  res.cookie(REFRESH_COOKIE, token, {
-    httpOnly: true,
-    sameSite: 'strict',
-    secure: process.env.NODE_ENV === 'production',
-    path: '/api',
-    expires: new Date(expiresAt),
-  });
+  res.cookie(REFRESH_COOKIE, token, { ...COOKIE_OPTS, expires: new Date(expiresAt) });
 }
 
 function clearRefreshCookie(res) {
-  res.clearCookie(REFRESH_COOKIE, { path: '/api' });
+  res.clearCookie(REFRESH_COOKIE, COOKIE_OPTS);
 }
 
 function readCookie(req, name) {
