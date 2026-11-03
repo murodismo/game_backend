@@ -20,10 +20,30 @@ const COOKIE_OPTS = { httpOnly: true, sameSite: CROSS_SITE ? 'none' : 'strict', 
 const app = express();
 // Frontend boshqa domenda (Vercel / localhost) bo'lgani uchun cookie bilan so'rovga ruxsat beriladi.
 // credentials: true bilan '*' ishlamaydi, shuning uchun aniq manzillar ro'yxati kerak.
-// Render'da CLIENT_ORIGINS ga vergul bilan yoziladi: https://oyin.vercel.app,http://localhost:5173
-const CLIENT_ORIGINS = (process.env.CLIENT_ORIGINS || 'http://localhost:5173')
-  .split(',').map((o) => o.trim().replace(/\/+$/, '')).filter(Boolean);
-app.use(cors({ origin: CLIENT_ORIGINS, credentials: true }));
+// Qo'shimcha manzillar Render'da CLIENT_ORIGINS ga vergul bilan yoziladi.
+const DEFAULT_ORIGINS = ['https://game1-six-eta.vercel.app', 'http://localhost:5173'];
+const normOrigin = (o) => String(o || '').trim().replace(/\/+$/, '').toLowerCase();
+const CLIENT_ORIGINS = new Set(
+  [...DEFAULT_ORIGINS, ...(process.env.CLIENT_ORIGINS || '').split(',')].map(normOrigin).filter(Boolean),
+);
+console.log('CORS ruxsat etilgan manzillar:', [...CLIENT_ORIGINS].join(', '));
+
+// Health ochiq: cookie ishlatmaydi, loader istalgan joydan serverni uyg'ota olishi kerak
+app.get('/api/health', cors(), (req, res) => {
+  res.json({ ok: true });
+});
+
+app.use(
+  cors({
+    origin(origin, cb) {
+      // Origin'siz so'rov (curl, server-server) — CORS kerak emas
+      if (!origin || CLIENT_ORIGINS.has(normOrigin(origin))) return cb(null, true);
+      console.warn(`CORS rad etildi: ${origin} (CLIENT_ORIGINS ga qo'shing)`);
+      return cb(null, false); // sarlavha qo'yilmaydi -> brauzer "CORS error" ko'rsatadi
+    },
+    credentials: true,
+  }),
+);
 app.use(express.json());
 
 function validate(username, password) {
@@ -177,11 +197,6 @@ app.post('/api/logout', (req, res) => {
     db.prepare('UPDATE refresh_tokens SET revoked = 1 WHERE token_hash = ?').run(hashToken(token));
   }
   clearRefreshCookie(res);
-  res.json({ ok: true });
-});
-
-// Server tirikligini tekshirish: frontend sahifa ochilganda shu yerga ping yuboradi (Render uyg'onishi)
-app.get('/api/health', (req, res) => {
   res.json({ ok: true });
 });
 
